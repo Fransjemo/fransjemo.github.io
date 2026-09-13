@@ -1,0 +1,4 @@
+exporter/node_modules
+exporter/dist
+.DS_Store
+*.local

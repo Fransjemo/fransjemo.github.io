@@ -1,0 +1,9 @@
+{
+  "name": "fransjemo-github-io",
+  "private": true,
+  "description": "User GitHub Pages site hosting Telegram Chat Exporter at /telegram-chat-exporter/",
+  "scripts": {
+    "dev": "npm run dev --prefix exporter",
+    "build": "npm ci --prefix exporter && npm run build --prefix exporter && node scripts/publish-exporter.mjs"
+  }
+}

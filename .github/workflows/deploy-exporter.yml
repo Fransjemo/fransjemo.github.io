@@ -1,0 +1,46 @@
+name: Deploy Telegram exporter
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "exporter/**"
+      - "scripts/**"
+      - "index.html"
+      - ".github/workflows/deploy-exporter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: exporter/package-lock.json
+      - name: Build Vite app
+        run: npm ci --prefix exporter && npm run build --prefix exporter
+      - name: Copy dist to Pages path
+        run: node scripts/publish-exporter.mjs
+      - name: Commit published site if it changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add telegram-chat-exporter
+          if git diff --cached --quiet; then
+            echo "No site changes"
+          else
+            git commit -m "Deploy Telegram chat exporter to /telegram-chat-exporter/"
+            git push
+          fi
