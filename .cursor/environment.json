@@ -1,0 +1,11 @@
+{
+  "name": "Telegram Chat Exporter",
+  "install": "npm ci --prefix exporter",
+  "terminals": [
+    {
+      "name": "vite-dev",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [5173]
+}
