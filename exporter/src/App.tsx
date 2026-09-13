@@ -106,8 +106,10 @@ export default function App() {
     setError("");
     const id = Number(apiId.trim());
     const hash = apiHash.trim();
-    if (!Number.isInteger(id) || id <= 0 || hash.length < 8) {
-      setError("Enter a numeric api_id and the api_hash from my.telegram.org. Nothing is hardcoded.");
+    if (!Number.isInteger(id) || id <= 0 || !/^[a-f0-9]{32}$/i.test(hash)) {
+      setError(
+        "Enter a numeric api_id and the 32-character api_hash from my.telegram.org. Nothing is hardcoded.",
+      );
       return;
     }
     saveCredentials(id, hash);
