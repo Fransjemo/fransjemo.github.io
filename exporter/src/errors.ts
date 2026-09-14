@@ -1,3 +1,51 @@
+export function floodWaitSeconds(err: unknown): number | null {
+  const e = err as {
+    seconds?: number;
+    errorMessage?: string;
+    message?: string;
+  };
+  if (typeof e.seconds === "number" && Number.isFinite(e.seconds) && e.seconds > 0) {
+    return Math.ceil(e.seconds);
+  }
+  const raw = [e.errorMessage, e.message, err instanceof Error ? err.message : ""]
+    .filter(Boolean)
+    .join(" ");
+  const match = raw.match(/FLOOD_WAIT[_ ]?(\d+)/i) || raw.match(/A wait of (\d+) seconds/i);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+export function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sleepSeconds(seconds: number): Promise<void> {
+  const end = Date.now() + seconds * 1000;
+  while (Date.now() < end) {
+    await sleepMs(Math.min(1000, end - Date.now()));
+  }
+}
+
+export async function withFloodWaitRetry<T>(
+  fn: () => Promise<T>,
+  onWait?: (seconds: number) => void,
+  maxRetries = 8,
+): Promise<T> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (err) {
+      const seconds = floodWaitSeconds(err);
+      if (seconds == null || attempt >= maxRetries) throw err;
+      attempt += 1;
+      onWait?.(seconds);
+      await sleepSeconds(seconds + 1);
+    }
+  }
+}
+
 export function formatTelegramError(err: unknown): string {
   const e = err as {
     errorMessage?: string;

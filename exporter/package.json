@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.app.json --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --test src/errors.test.ts src/crypto-shim.test.ts",
+    "check:bundle": "node scripts/check-crypto-bundle.mjs"
   },
   "dependencies": {
     "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "telegram": "2.26.21"

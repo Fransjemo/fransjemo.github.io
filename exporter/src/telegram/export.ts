@@ -175,3 +175,8 @@ export function slugFor(bundle: ExportBundle): string {
   const day = bundle.exportedAt.slice(0, 10);
   return `${fileSafe(bundle.chatTitle)}_${day}`;
 }
+
+/** Drop message rows so a sequential export can GC before the next chat. */
+export function releaseBundle(bundle: ExportBundle): void {
+  bundle.messages.length = 0;
+}

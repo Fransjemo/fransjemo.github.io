@@ -1,12 +1,17 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+
+const cryptoShim = fileURLToPath(new URL("./src/crypto-shim.ts", import.meta.url));
 
 export default defineConfig({
   base: "/telegram-chat-exporter/",
   plugins: [
     react(),
     nodePolyfills({
+      // Our resolve.alias shim must win so GramJS sees r.default.randomBytes.
+      exclude: ["crypto"],
       globals: {
         Buffer: true,
         global: true,
@@ -15,6 +20,12 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  resolve: {
+    alias: {
+      crypto: cryptoShim,
+      "node:crypto": cryptoShim,
+    },
+  },
   define: {
     global: "globalThis",
   },
@@ -26,7 +37,7 @@ export default defineConfig({
     sourcemap: false,
   },
   optimizeDeps: {
-    include: ["telegram", "buffer"],
+    include: ["telegram", "buffer", "crypto-browserify"],
     esbuildOptions: {
       define: {
         global: "globalThis",
