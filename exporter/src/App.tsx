@@ -7,7 +7,7 @@ import {
   loadSession,
   saveCredentials,
 } from "./storage";
-import { formatTelegramError } from "./errors";
+import { formatTelegramError, sleepMs, withFloodWaitRetry } from "./errors";
 import {
   connectFresh,
   connectWithSession,
@@ -19,9 +19,9 @@ import {
   signInWithCode,
   signInWithPassword,
 } from "./telegram/client";
-import { buildHtml, buildJson, buildTxt, exportChat, slugFor } from "./telegram/export";
+import { buildHtml, buildJson, buildTxt, exportChat, releaseBundle, slugFor } from "./telegram/export";
 import type { ChatItem, ExportBundle, ExportProgress } from "./telegram/types";
-import { shareOrDownload } from "./download";
+import { downloadBundleFormats, shareOrDownload } from "./download";
 import "./App.css";
 
 type Screen = "credentials" | "login" | "chats";
@@ -235,13 +235,80 @@ export default function App() {
       for (const chat of selectedChats) {
         setInfo(`Exporting “${chat.title}”…`);
         setProgress({ count: 0, lastId: null, lastDate: null });
-        const bundle = await exportChat(chat, messageLimit, setProgress);
+        const bundle = await withFloodWaitRetry(
+          () => exportChat(chat, messageLimit, setProgress),
+          (seconds) => setInfo(`FloodWait: waiting ${seconds}s, then retrying “${chat.title}”…`),
+        );
         next.push(bundle);
       }
       setBundles(next);
       setInfo(`Exported ${next.reduce((n, b) => n + b.messageCount, 0)} messages from ${next.length} chat(s). Media files are labeled only — binaries are not downloaded in v1.`);
     } catch (err) {
       setError(formatTelegramError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExportAll() {
+    if (!chats.length) {
+      setError("No chats loaded.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Export all ${chats.length} chats one at a time? Each chat downloads JSON, HTML, and TXT, then memory is released before the next chat. Allow multiple downloads if the browser asks.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setBundles([]);
+    setProgress({ count: 0, lastId: null, lastDate: null });
+    const parsed = Number(limit);
+    const messageLimit = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    let exported = 0;
+    let skipped = 0;
+    const skipReasons: string[] = [];
+    const total = chats.length;
+
+    try {
+      for (let i = 0; i < chats.length; i++) {
+        const chat = chats[i];
+        const n = i + 1;
+        setInfo(`Exporting ${n}/${total}: ${chat.title} (0 msgs)`);
+        setProgress({ count: 0, lastId: null, lastDate: null });
+        try {
+          const bundle = await withFloodWaitRetry(
+            () =>
+              exportChat(chat, messageLimit, (p) => {
+                setProgress(p);
+                setInfo(`Exporting ${n}/${total}: ${chat.title} (${p.count} msgs)`);
+              }),
+            (seconds) => {
+              setInfo(`FloodWait: waiting ${seconds}s, then retrying “${chat.title}”…`);
+            },
+          );
+          setInfo(`Exporting ${n}/${total}: ${chat.title} (${bundle.messageCount} msgs)`);
+          downloadBundleFormats(bundle);
+          releaseBundle(bundle);
+          exported += 1;
+        } catch (err) {
+          skipped += 1;
+          skipReasons.push(`${chat.title}: ${formatTelegramError(err)}`);
+          setInfo(`Skipping ${n}/${total}: ${chat.title} — ${formatTelegramError(err)}`);
+        }
+        await sleepMs(400);
+      }
+      setProgress(null);
+      setInfo(
+        `Finished sequential export: ${exported} ok, ${skipped} skipped of ${total}. Media files are labeled only — binaries are not downloaded in v1.`,
+      );
+      if (skipReasons.length) {
+        const extra = skipReasons.length > 12 ? ` · +${skipReasons.length - 12} more` : "";
+        setError(skipReasons.slice(0, 12).join(" · ") + extra);
+      }
     } finally {
       setBusy(false);
     }
@@ -455,7 +522,19 @@ export default function App() {
             <button className="primary" type="button" disabled={busy} onClick={() => void handleExport()}>
               {busy ? "Exporting…" : "Export selected"}
             </button>
+            <button
+              className="secondary"
+              type="button"
+              disabled={busy || chats.length === 0}
+              onClick={() => void handleExportAll()}
+            >
+              {busy ? "Exporting…" : `Export all chats${chats.length ? ` (${chats.length})` : ""}`}
+            </button>
           </div>
+          <p className="hint">
+            Export all chats runs one dialog at a time (fetch → download JSON/HTML/TXT → clear
+            memory → short delay). FloodWait waits and retries; other per-chat errors are skipped.
+          </p>
           {progress ? (
             <p className="progress">
               {progress.count} messages
@@ -535,7 +614,11 @@ function IphoneHelp() {
           To wipe data: tap Log out (session) or Clear saved API keys, or Settings → Safari →
           Advanced → Website Data → search “fransjemo” / “github.io” and remove it.
         </li>
-        <li>Downloads: use JSON / HTML / TXT. If Safari offers Share, save to Files or AirDrop.</li>
+        <li>
+          Downloads: use JSON / HTML / TXT. If Safari offers Share, save to Files or AirDrop.
+          <strong>Export all chats</strong> downloads each dialog’s three files immediately, then
+          forgets that history before the next chat (avoids Chrome running out of memory).
+        </li>
       </ol>
     </details>
   );
