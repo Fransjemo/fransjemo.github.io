@@ -13,12 +13,19 @@ Source of this app lives in this folder. GitHub Pages serves the production buil
 3. Lists chats (`getDialogs`), search, multi-select.
 4. Exports messages (`iterMessages`) to JSON, readable HTML, and TXT.
 5. **Export selected** keeps the last batch on-screen so you can tap JSON / HTML / TXT.
-6. **Export all chats** is sequential: one dialog at a time, fetch → download JSON/HTML/TXT →
-   release that chat’s messages → short delay → next. Progress looks like
-   `Exporting 3/155: Title (N msgs)`. Per-chat errors are skipped. Telegram FloodWait waits
-   and retries that chat. Histories are never held all at once (an earlier all-at-once attempt
-   ran Chrome out of memory).
-7. Downloads via blob + Web Share when Safari supports it.
+   HTML and TXT are skipped when a chat has more than about 8,000 messages.
+6. **Export all chats** is JSON only and sequential: one dialog at a time, fetch → download
+   JSON → release that chat’s messages → short delay → next. Progress looks like
+   `Exporting 3/155: Title (N msgs)`. Already-exported chat ids are stored in
+   `localStorage` key `tg_export_done_ids` so you can resume; use **Clear export progress**
+   to start over. Per-chat errors are skipped. Telegram FloodWait waits and retries that
+   chat. Histories are never held all at once (an earlier all-at-once attempt ran Chrome
+   out of memory).
+7. Download filenames include the Telegram chat id so two chats with the same title do not
+   collide: `{slug}__{chatId}-{YYYYMMDD}.{ext}`
+   (examples: `Unknown__8172808504-20260916.json`,
+   `Kristina-Pimenova__-1001525425988-20260916.json`).
+8. Downloads via blob + Web Share when Safari supports it.
 
 v1 labels media types only. It does **not** download photos, videos, or other binaries.
 
@@ -48,7 +55,8 @@ From the repository root, `npm run build` also copies `dist/` to `../telegram-ch
 2. Share → **Add to Home Screen**.
 3. Create an app on my.telegram.org (Request Desktop Website if the API page is missing).
 4. Paste `api_id` / `api_hash`, then phone + login code.
-5. Select chats → **Export selected** → JSON / HTML / TXT, or **Export all chats** (sequential
-   downloads; allow multiple files if the browser asks). Use Share to save to Files.
+5. Select chats → **Export selected** → JSON / HTML / TXT, or **Export all chats** (JSON only,
+   sequential downloads; allow multiple files if the browser asks). Use Share to save to Files.
+   Filenames are `{slug}__{chatId}-{YYYYMMDD}.json`.
 6. **Log out** clears the session. **Clear saved API keys** removes credentials.
 7. Or Settings → Safari → Advanced → Website Data → remove `fransjemo.github.io`.

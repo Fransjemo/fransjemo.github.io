@@ -2,6 +2,14 @@ import type { Api } from "telegram";
 import { getClient } from "./client";
 import type { ChatItem, ExportBundle, ExportedMessage, ExportProgress } from "./types";
 
+export {
+  allowsHtmlTxt,
+  exportFilename,
+  HTML_TXT_MAX_MESSAGES,
+  slugify,
+  ymd,
+} from "./filename";
+
 function isoDate(value: Date | number | undefined): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "number") return new Date(value * 1000).toISOString();
@@ -88,6 +96,7 @@ export async function exportChat(
 
   return {
     chatTitle: chat.title,
+    chatId: String(chat.id),
     exportedAt: new Date().toISOString(),
     messageCount: messages.length,
     messages,
@@ -96,10 +105,6 @@ export async function exportChat(
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function fileSafe(name: string): string {
-  return name.replace(/[^\w.-]+/g, "_").slice(0, 60) || "chat";
 }
 
 export function buildJson(bundle: ExportBundle): string {
@@ -171,10 +176,6 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-export function slugFor(bundle: ExportBundle): string {
-  const day = bundle.exportedAt.slice(0, 10);
-  return `${fileSafe(bundle.chatTitle)}_${day}`;
-}
 
 /** Drop message rows so a sequential export can GC before the next chat. */
 export function releaseBundle(bundle: ExportBundle): void {

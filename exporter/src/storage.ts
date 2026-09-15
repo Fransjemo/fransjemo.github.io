@@ -2,6 +2,7 @@ const KEYS = {
   apiId: "tce_api_id",
   apiHash: "tce_api_hash",
   session: "tce_string_session",
+  exportDoneIds: "tg_export_done_ids",
 } as const;
 
 export type StoredCredentials = {
@@ -44,4 +45,33 @@ export function clearSession(): void {
 export function clearAllAppData(): void {
   clearCredentials();
   clearSession();
+  clearExportProgress();
+}
+
+export function loadExportDoneIds(): string[] {
+  try {
+    const raw = localStorage.getItem(KEYS.exportDoneIds);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map(String).filter((id) => id.length > 0))];
+  } catch {
+    return [];
+  }
+}
+
+export function markExportDone(chatId: string | number): void {
+  const id = String(chatId);
+  if (!id) return;
+  const ids = new Set(loadExportDoneIds());
+  ids.add(id);
+  localStorage.setItem(KEYS.exportDoneIds, JSON.stringify([...ids]));
+}
+
+export function clearExportProgress(): void {
+  localStorage.removeItem(KEYS.exportDoneIds);
+}
+
+export function isExportDone(chatId: string | number): boolean {
+  return loadExportDoneIds().includes(String(chatId));
 }

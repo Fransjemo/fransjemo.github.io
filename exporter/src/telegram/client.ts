@@ -1,6 +1,8 @@
 import { Api, TelegramClient } from "telegram";
+import { getPeerId } from "telegram/Utils";
 import { StringSession } from "telegram/sessions";
 import { saveSession } from "../storage";
+import { chatIdFromEntity } from "./chat-id";
 import type { ChatItem } from "./types";
 
 export type ClientOptions = {
@@ -166,12 +168,25 @@ export async function loadChats(): Promise<ChatItem[]> {
     const entity = dialog.entity ?? dialog.inputEntity;
     return {
       key: entityKey(entity),
+      id: resolveChatId(dialog),
       title: dialog.title || displayName(entity),
       subtitle: subtitleFor(entity, dialog.unreadCount ?? 0),
       unread: dialog.unreadCount ?? 0,
       entity,
     };
   });
+}
+
+function resolveChatId(dialog: { id?: unknown; entity?: unknown; inputEntity?: unknown }): string {
+  if (dialog.id != null && String(dialog.id) !== "") return String(dialog.id);
+  const entity = dialog.entity ?? dialog.inputEntity;
+  try {
+    const marked = getPeerId(entity as never);
+    if (marked) return String(marked);
+  } catch {
+    /* fall through to className-based marking */
+  }
+  return chatIdFromEntity(entity);
 }
 
 export async function getMeLabel(): Promise<string> {

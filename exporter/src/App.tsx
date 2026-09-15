@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   clearAllAppData,
   clearCredentials,
+  clearExportProgress,
   clearSession,
   loadCredentials,
+  loadExportDoneIds,
   loadSession,
+  markExportDone,
   saveCredentials,
 } from "./storage";
 import { formatTelegramError, sleepMs, withFloodWaitRetry } from "./errors";
@@ -19,9 +22,14 @@ import {
   signInWithCode,
   signInWithPassword,
 } from "./telegram/client";
-import { buildHtml, buildJson, buildTxt, exportChat, releaseBundle, slugFor } from "./telegram/export";
+import { buildHtml, buildJson, buildTxt, exportChat, releaseBundle } from "./telegram/export";
+import {
+  allowsHtmlTxt,
+  exportFilename,
+  HTML_TXT_MAX_MESSAGES,
+} from "./telegram/filename";
 import type { ChatItem, ExportBundle, ExportProgress } from "./telegram/types";
-import { downloadBundleFormats, shareOrDownload } from "./download";
+import { downloadBlob, shareOrDownload } from "./download";
 import "./App.css";
 
 type Screen = "credentials" | "login" | "chats";
@@ -51,6 +59,8 @@ export default function App() {
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [bundles, setBundles] = useState<ExportBundle[]>([]);
   const [booting, setBooting] = useState(Boolean(savedCreds && savedSession));
+  const [doneIds, setDoneIds] = useState<string[]>(() => loadExportDoneIds());
+  const doneIdSet = useMemo(() => new Set(doneIds), [doneIds]);
 
   useEffect(() => {
     if (savedCreds && savedSession) void handleResume();
@@ -213,7 +223,14 @@ export default function App() {
     setSelected({});
     setLoginPhase("phone");
     setScreen("credentials");
+    setDoneIds([]);
     setInfo("API credentials and session removed from localStorage.");
+  }
+
+  function handleClearExportProgress() {
+    clearExportProgress();
+    setDoneIds([]);
+    setInfo("Export progress cleared. Export all will run every chat again.");
   }
 
   function toggleChat(key: string) {
@@ -255,9 +272,17 @@ export default function App() {
       setError("No chats loaded.");
       return;
     }
+    const already = new Set(loadExportDoneIds());
+    const remaining = chats.filter((chat) => !already.has(String(chat.id)));
+    if (!remaining.length) {
+      setInfo(
+        `All ${chats.length} chats are already in export progress. Use “Clear export progress” to run them again.`,
+      );
+      return;
+    }
     if (
       !window.confirm(
-        `Export all ${chats.length} chats one at a time? Each chat downloads JSON, HTML, and TXT, then memory is released before the next chat. Allow multiple downloads if the browser asks.`,
+        `Export ${remaining.length} remaining chat(s) as JSON only, one at a time? ${already.size} already exported will be skipped. Allow multiple downloads if the browser asks.`,
       )
     ) {
       return;
@@ -270,6 +295,7 @@ export default function App() {
     const messageLimit = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
     let exported = 0;
     let skipped = 0;
+    let skippedDone = 0;
     const skipReasons: string[] = [];
     const total = chats.length;
 
@@ -277,6 +303,10 @@ export default function App() {
       for (let i = 0; i < chats.length; i++) {
         const chat = chats[i];
         const n = i + 1;
+        if (already.has(String(chat.id))) {
+          skippedDone += 1;
+          continue;
+        }
         setInfo(`Exporting ${n}/${total}: ${chat.title} (0 msgs)`);
         setProgress({ count: 0, lastId: null, lastDate: null });
         try {
@@ -291,7 +321,13 @@ export default function App() {
             },
           );
           setInfo(`Exporting ${n}/${total}: ${chat.title} (${bundle.messageCount} msgs)`);
-          downloadBundleFormats(bundle);
+          downloadBlob(
+            new Blob([buildJson(bundle)], { type: "application/json;charset=utf-8" }),
+            exportFilename(chat.title, chat.id, "json"),
+          );
+          markExportDone(chat.id);
+          already.add(String(chat.id));
+          setDoneIds([...already]);
           releaseBundle(bundle);
           exported += 1;
         } catch (err) {
@@ -303,7 +339,7 @@ export default function App() {
       }
       setProgress(null);
       setInfo(
-        `Finished sequential export: ${exported} ok, ${skipped} skipped of ${total}. Media files are labeled only — binaries are not downloaded in v1.`,
+        `Finished sequential JSON export: ${exported} ok, ${skippedDone} already done, ${skipped} skipped of ${total}. Media files are labeled only — binaries are not downloaded in v1.`,
       );
       if (skipReasons.length) {
         const extra = skipReasons.length > 12 ? ` · +${skipReasons.length - 12} more` : "";
@@ -315,12 +351,19 @@ export default function App() {
   }
 
   async function saveBundle(bundle: ExportBundle, kind: "json" | "html" | "txt") {
-    const slug = slugFor(bundle);
+    if (kind !== "json" && !allowsHtmlTxt(bundle.messageCount)) {
+      setInfo(
+        `HTML/TXT skipped for “${bundle.chatTitle}” (${bundle.messageCount} messages > ${HTML_TXT_MAX_MESSAGES}). Use JSON.`,
+      );
+      return;
+    }
     const body =
       kind === "json" ? buildJson(bundle) : kind === "html" ? buildHtml(bundle) : buildTxt(bundle);
     const mime =
       kind === "json" ? "application/json" : kind === "html" ? "text/html" : "text/plain";
-    const file = new File([body], `${slug}.${kind}`, { type: `${mime};charset=utf-8` });
+    const file = new File([body], exportFilename(bundle.chatTitle, bundle.chatId, kind), {
+      type: `${mime};charset=utf-8`,
+    });
     const how = await shareOrDownload(file);
     setInfo(how === "shared" ? `Shared ${file.name}` : `Downloaded ${file.name}`);
   }
@@ -494,6 +537,7 @@ export default function App() {
           />
           <p className="selected">
             {selectedChats.length} selected · {visibleChats.length} shown
+            {doneIds.length ? ` · ${doneIds.length} already exported` : ""}
           </p>
           <ul className="chats">
             {visibleChats.map((chat) => (
@@ -506,7 +550,10 @@ export default function App() {
                 />
                 <div>
                   <div className="chat-title">{chat.title}</div>
-                  <div className="chat-sub">{chat.subtitle}</div>
+                  <div className="chat-sub">
+                    {chat.subtitle}
+                    {doneIdSet.has(String(chat.id)) ? " · exported" : ""}
+                  </div>
                 </div>
               </li>
             ))}
@@ -528,12 +575,26 @@ export default function App() {
               disabled={busy || chats.length === 0}
               onClick={() => void handleExportAll()}
             >
-              {busy ? "Exporting…" : `Export all chats${chats.length ? ` (${chats.length})` : ""}`}
+              {busy
+                ? "Exporting…"
+                : `Export all chats${chats.length ? ` (${chats.length})` : ""}`}
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              disabled={busy || doneIds.length === 0}
+              onClick={handleClearExportProgress}
+            >
+              Clear export progress
             </button>
           </div>
           <p className="hint">
-            Export all chats runs one dialog at a time (fetch → download JSON/HTML/TXT → clear
-            memory → short delay). FloodWait waits and retries; other per-chat errors are skipped.
+            Export all is JSON only and runs one dialog at a time (fetch → download → clear memory →
+            short delay). Already-exported chat ids in localStorage <code>tg_export_done_ids</code>{" "}
+            are skipped. Files are named{" "}
+            <code>{"{slug}__{chatId}-{YYYYMMDD}.json"}</code>. Selected export can still save
+            HTML/TXT (skipped above {HTML_TXT_MAX_MESSAGES.toLocaleString()} messages). FloodWait
+            waits and retries; other per-chat errors are skipped.
           </p>
           {progress ? (
             <p className="progress">
@@ -542,21 +603,27 @@ export default function App() {
             </p>
           ) : null}
           {bundles.map((bundle) => (
-            <div className="exports" key={`${bundle.chatTitle}-${bundle.exportedAt}`}>
+            <div className="exports" key={`${bundle.chatId}-${bundle.exportedAt}`}>
               <strong>
-                {bundle.chatTitle} · {bundle.messageCount}
+                {bundle.chatTitle} · {bundle.chatId} · {bundle.messageCount}
               </strong>
               <div className="row">
                 <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "json")}>
                   JSON
                 </button>
-                <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "html")}>
-                  HTML
-                </button>
+                {allowsHtmlTxt(bundle.messageCount) ? (
+                  <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "html")}>
+                    HTML
+                  </button>
+                ) : (
+                  <span className="hint">HTML/TXT skipped (&gt;{HTML_TXT_MAX_MESSAGES} msgs)</span>
+                )}
               </div>
-              <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "txt")}>
-                TXT
-              </button>
+              {allowsHtmlTxt(bundle.messageCount) ? (
+                <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "txt")}>
+                  TXT
+                </button>
+              ) : null}
             </div>
           ))}
           <PrivacyNote />
@@ -616,8 +683,11 @@ function IphoneHelp() {
         </li>
         <li>
           Downloads: use JSON / HTML / TXT. If Safari offers Share, save to Files or AirDrop.
-          <strong>Export all chats</strong> downloads each dialog’s three files immediately, then
-          forgets that history before the next chat (avoids Chrome running out of memory).
+          Filenames look like <code>Unknown__8172808504-20260916.json</code>.{" "}
+          <strong>Export all chats</strong> downloads JSON only, one dialog at a time, then
+          forgets that history (avoids Chrome running out of memory). Progress is saved so you can
+          resume. HTML/TXT for selected chats are skipped above {HTML_TXT_MAX_MESSAGES.toLocaleString()}{" "}
+          messages.
         </li>
       </ol>
     </details>

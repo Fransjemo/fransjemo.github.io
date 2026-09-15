@@ -1,5 +1,7 @@
 export type ChatItem = {
   key: string;
+  /** Marked Telegram chat id (user id, `-chatId`, or `-100channelId`). */
+  id: string;
   title: string;
   subtitle: string;
   unread: number;
@@ -23,6 +25,7 @@ export type ExportProgress = {
 
 export type ExportBundle = {
   chatTitle: string;
+  chatId: string;
   exportedAt: string;
   messageCount: number;
   messages: ExportedMessage[];

@@ -27,4 +27,16 @@ if (!/Export all chats/.test(src)) {
   console.error("Bundle is missing Export all chats UI");
   process.exit(1);
 }
-console.log(`crypto + export-all checks ok (${jsName})`);
+if (!/tg_export_done_ids/.test(src)) {
+  console.error("Bundle is missing tg_export_done_ids resume key");
+  process.exit(1);
+}
+if (!/Clear export progress/.test(src)) {
+  console.error("Bundle is missing Clear export progress");
+  process.exit(1);
+}
+if (!/"__"/.test(src) && !/__\$\{/.test(src) && !/`[^`]*__\$\{/.test(src)) {
+  console.error("Bundle is missing __chatId filename separator");
+  process.exit(1);
+}
+console.log(`crypto + export-all + filename checks ok (${jsName})`);

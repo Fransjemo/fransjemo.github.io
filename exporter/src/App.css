@@ -258,3 +258,11 @@ details.iphone li + li {
   color: var(--muted);
   margin: 0 0 8px;
 }
+
+.hint code,
+.iphone code {
+  font-size: 0.78em;
+  background: #0e1621;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+}
