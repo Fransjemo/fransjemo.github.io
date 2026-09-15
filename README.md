@@ -19,7 +19,9 @@ npm run build
 Vite `base` is `/telegram-chat-exporter/` so JS/CSS load on the project Pages path. **Export all chats**
 is JSON only and sequential (one chat in memory at a time). Progress is stored in
 `localStorage` as `tg_export_done_ids`. Download filenames are
-`{slug}__{chatId}-{YYYYMMDD}.{ext}` so titles cannot collide. GramJS `crypto` is aliased to a
+`{slug}__{chatId}-{YYYYMMDD}.{ext}` so titles cannot collide. An optional **Include media
+source URLs** checkbox (off by default) records Telegram/webpage links and highest-res
+size metadata — not permanent CDN file URLs. GramJS `crypto` is aliased to a
 `crypto-browserify` shim that exposes `randomBytes` as `r.default.randomBytes`. Each push that
 changes `exporter/` rebuilds via GitHub Actions and commits the `dist` output into
 `telegram-chat-exporter/`.

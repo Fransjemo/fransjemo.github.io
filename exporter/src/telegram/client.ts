@@ -3,6 +3,7 @@ import { getPeerId } from "telegram/Utils";
 import { StringSession } from "telegram/sessions";
 import { saveSession } from "../storage";
 import { chatIdFromEntity } from "./chat-id";
+import type { PeerKind } from "./media-source";
 import type { ChatItem } from "./types";
 
 export type ClientOptions = {
@@ -172,9 +173,34 @@ export async function loadChats(): Promise<ChatItem[]> {
       title: dialog.title || displayName(entity),
       subtitle: subtitleFor(entity, dialog.unreadCount ?? 0),
       unread: dialog.unreadCount ?? 0,
+      username: usernameFromEntity(entity),
+      peerKind: peerKindFromEntity(entity),
       entity,
     };
   });
+}
+
+function usernameFromEntity(entity: unknown): string | null {
+  const username = (entity as { username?: string } | null)?.username;
+  if (typeof username !== "string") return null;
+  const cleaned = username.replace(/^@/, "").trim();
+  return cleaned || null;
+}
+
+function peerKindFromEntity(entity: unknown): PeerKind {
+  const e = entity as {
+    className?: string;
+    megagroup?: boolean;
+    broadcast?: boolean;
+  } | null;
+  const className = e?.className ?? "";
+  if (className === "User" || className === "UserEmpty" || className === "UserForbidden") {
+    return "user";
+  }
+  if (className.includes("Channel") || e?.megagroup === true || e?.broadcast === true) {
+    return "channel";
+  }
+  return "chat";
 }
 
 function resolveChatId(dialog: { id?: unknown; entity?: unknown; inputEntity?: unknown }): string {

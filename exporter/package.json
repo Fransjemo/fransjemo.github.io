@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.app.json --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/errors.test.ts src/crypto-shim.test.ts src/storage.test.ts src/telegram/export-filename.test.ts src/telegram/chat-id.test.ts",
+    "test": "node --experimental-strip-types --test src/errors.test.ts src/crypto-shim.test.ts src/storage.test.ts src/telegram/export-filename.test.ts src/telegram/chat-id.test.ts src/telegram/media-source.test.ts",
     "check:bundle": "node scripts/check-crypto-bundle.mjs"
   },
   "dependencies": {

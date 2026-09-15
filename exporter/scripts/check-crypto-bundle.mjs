@@ -39,4 +39,12 @@ if (!/"__"/.test(src) && !/__\$\{/.test(src) && !/`[^`]*__\$\{/.test(src)) {
   console.error("Bundle is missing __chatId filename separator");
   process.exit(1);
 }
-console.log(`crypto + export-all + filename checks ok (${jsName})`);
+if (!/Include media source URLs/.test(src)) {
+  console.error("Bundle is missing Include media source URLs checkbox");
+  process.exit(1);
+}
+if (!/does not expose permanent public CDN URLs/.test(src)) {
+  console.error("Bundle is missing honest media-URL help text");
+  process.exit(1);
+}
+console.log(`crypto + export-all + filename + media-source checks ok (${jsName})`);

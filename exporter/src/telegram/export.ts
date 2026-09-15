@@ -1,6 +1,18 @@
 import type { Api } from "telegram";
 import { getClient } from "./client";
-import type { ChatItem, ExportBundle, ExportedMessage, ExportProgress } from "./types";
+import {
+  emptyMediaMeta,
+  metaFromDocument,
+  metaFromPhoto,
+  resolveMediaSource,
+} from "./media-source";
+import type {
+  ChatItem,
+  ExportBundle,
+  ExportChatOptions,
+  ExportedMessage,
+  ExportProgress,
+} from "./types";
 
 export {
   allowsHtmlTxt,
@@ -58,18 +70,20 @@ function replyToId(message: Api.Message): number | null {
 
 export async function exportChat(
   chat: ChatItem,
-  limit: number | undefined,
   onProgress: (progress: ExportProgress) => void,
+  options?: ExportChatOptions,
 ): Promise<ExportBundle> {
   const client = getClient();
   const messages: ExportedMessage[] = [];
+  const includeMediaSources = Boolean(options?.includeMediaSources);
+  const limit = options?.limit;
 
   for await (const message of client.iterMessages(chat.entity as never, {
     limit: limit && limit > 0 ? limit : undefined,
     reverse: true,
   })) {
     if (!("id" in message) || typeof message.id !== "number") continue;
-    const exported: ExportedMessage = {
+    let exported: ExportedMessage = {
       id: message.id,
       date: isoDate(message.date as Date | number | undefined),
       sender: senderName(message),
@@ -77,6 +91,9 @@ export async function exportChat(
       replyTo: replyToId(message),
       media: mediaLabel(message),
     };
+    if (includeMediaSources) {
+      exported = attachMediaSources(exported, message, chat);
+    }
     messages.push(exported);
     if (messages.length === 1 || messages.length % 25 === 0) {
       onProgress({
@@ -94,12 +111,67 @@ export async function exportChat(
     lastDate: messages.at(-1)?.date ?? null,
   });
 
-  return {
+  const bundle: ExportBundle = {
     chatTitle: chat.title,
     chatId: String(chat.id),
     exportedAt: new Date().toISOString(),
     messageCount: messages.length,
     messages,
+  };
+  if (includeMediaSources) bundle.includeMediaSources = true;
+  return bundle;
+}
+
+function extractWebpageUrl(message: Api.Message): string | null {
+  const media = message.media as
+    | { className?: string; webpage?: { url?: string; className?: string } }
+    | undefined;
+  if (media?.className === "MessageMediaWebPage") {
+    const url = media.webpage?.url;
+    if (typeof url === "string" && url) return url;
+  }
+  const preview = message.webPreview as { url?: string } | undefined;
+  if (typeof preview?.url === "string" && preview.url) return preview.url;
+  return null;
+}
+
+function extractMediaMeta(message: Api.Message): ReturnType<typeof emptyMediaMeta> {
+  const photo = message.photo as Parameters<typeof metaFromPhoto>[0] | undefined;
+  if (photo?.sizes?.length) return metaFromPhoto(photo);
+  const document = message.document as Parameters<typeof metaFromDocument>[0] | undefined;
+  if (document?.attributes) return metaFromDocument(document);
+  const webpage = (
+    message.media as {
+      webpage?: {
+        photo?: Parameters<typeof metaFromPhoto>[0];
+        document?: Parameters<typeof metaFromDocument>[0];
+      };
+    } | undefined
+  )?.webpage;
+  if (webpage?.photo?.sizes?.length) return metaFromPhoto(webpage.photo);
+  if (webpage?.document) return metaFromDocument(webpage.document);
+  return emptyMediaMeta();
+}
+
+function attachMediaSources(
+  exported: ExportedMessage,
+  message: Api.Message,
+  chat: ChatItem,
+): ExportedMessage {
+  const webpageUrl = extractWebpageUrl(message);
+  const source = resolveMediaSource({
+    webpageUrl,
+    username: chat.username,
+    peerKind: chat.peerKind,
+    chatId: chat.id,
+    messageId: message.id,
+    hasMedia: Boolean(exported.media || webpageUrl),
+  });
+  return {
+    ...exported,
+    mediaType: exported.media,
+    ...source,
+    ...extractMediaMeta(message),
   };
 }
 
@@ -119,7 +191,8 @@ export function buildTxt(bundle: ExportBundle): string {
     "",
   ];
   for (const m of bundle.messages) {
-    const media = m.media ? ` [${m.media}]` : "";
+    const mediaBits = [m.media, m.mediaSourceUrl].filter(Boolean).join(" ");
+    const media = mediaBits ? ` [${mediaBits}]` : "";
     const reply = m.replyTo ? ` (reply to ${m.replyTo})` : "";
     lines.push(`[${m.id}] ${m.date}  ${m.sender}${reply}${media}`);
     lines.push(m.text || "");
@@ -131,7 +204,13 @@ export function buildTxt(bundle: ExportBundle): string {
 export function buildHtml(bundle: ExportBundle): string {
   const rows = bundle.messages
     .map((m) => {
-      const media = m.media ? `<div class="media">Media: ${escapeHtml(m.media)}</div>` : "";
+      const mediaUrl = m.mediaSourceUrl
+        ? ` · <a href="${escapeHtml(m.mediaSourceUrl)}">${escapeHtml(m.mediaSourceUrl)}</a>`
+        : "";
+      const media =
+        m.media || m.mediaSourceUrl
+          ? `<div class="media">${m.media ? `Media: ${escapeHtml(m.media)}` : "Media"}${mediaUrl}</div>`
+          : "";
       const reply = m.replyTo ? `<div class="reply">Reply to #${m.replyTo}</div>` : "";
       return `<article class="msg">
   <header><span class="id">#${m.id}</span> <time>${escapeHtml(m.date)}</time> <strong>${escapeHtml(m.sender)}</strong></header>

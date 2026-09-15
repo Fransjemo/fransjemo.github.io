@@ -25,9 +25,14 @@ Source of this app lives in this folder. GitHub Pages serves the production buil
    collide: `{slug}__{chatId}-{YYYYMMDD}.{ext}`
    (examples: `Unknown__8172808504-20260916.json`,
    `Kristina-Pimenova__-1001525425988-20260916.json`).
-8. Downloads via blob + Web Share when Safari supports it.
+8. Optional **Include media source URLs** (off by default) adds per-message
+   `mediaSourceUrl` / `mediaSourceKind` plus highest-res size metadata. Telegram does
+   **not** expose permanent public CDN URLs for private chat photos/videos; we store
+   the best available webpage URL or Telegram message / deep link.
+9. Downloads via blob + Web Share when Safari supports it.
 
-v1 labels media types only. It does **not** download photos, videos, or other binaries.
+v1 does **not** download photos, videos, or other binaries. Media types are always
+labeled; source URLs are only included when the checkbox is on.
 
 Nothing is hardcoded. All data stays in the browser except traffic to Telegram.
 
@@ -57,6 +62,7 @@ From the repository root, `npm run build` also copies `dist/` to `../telegram-ch
 4. Paste `api_id` / `api_hash`, then phone + login code.
 5. Select chats → **Export selected** → JSON / HTML / TXT, or **Export all chats** (JSON only,
    sequential downloads; allow multiple files if the browser asks). Use Share to save to Files.
-   Filenames are `{slug}__{chatId}-{YYYYMMDD}.json`.
+   Filenames are `{slug}__{chatId}-{YYYYMMDD}.json`. Turn on **Include media source
+   URLs** only if you want Telegram/webpage links and size metadata in the export.
 6. **Log out** clears the session. **Clear saved API keys** removes credentials.
 7. Or Settings → Safari → Advanced → Website Data → remove `fransjemo.github.io`.

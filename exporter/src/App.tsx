@@ -22,12 +22,9 @@ import {
   signInWithCode,
   signInWithPassword,
 } from "./telegram/client";
+import { ChatList } from "./ChatList";
 import { buildHtml, buildJson, buildTxt, exportChat, releaseBundle } from "./telegram/export";
-import {
-  allowsHtmlTxt,
-  exportFilename,
-  HTML_TXT_MAX_MESSAGES,
-} from "./telegram/filename";
+import { allowsHtmlTxt, exportFilename, HTML_TXT_MAX_MESSAGES } from "./telegram/filename";
 import type { ChatItem, ExportBundle, ExportProgress } from "./telegram/types";
 import { downloadBlob, shareOrDownload } from "./download";
 import "./App.css";
@@ -61,6 +58,7 @@ export default function App() {
   const [booting, setBooting] = useState(Boolean(savedCreds && savedSession));
   const [doneIds, setDoneIds] = useState<string[]>(() => loadExportDoneIds());
   const doneIdSet = useMemo(() => new Set(doneIds), [doneIds]);
+  const [includeMediaSources, setIncludeMediaSources] = useState(false);
 
   useEffect(() => {
     if (savedCreds && savedSession) void handleResume();
@@ -253,7 +251,11 @@ export default function App() {
         setInfo(`Exporting “${chat.title}”…`);
         setProgress({ count: 0, lastId: null, lastDate: null });
         const bundle = await withFloodWaitRetry(
-          () => exportChat(chat, messageLimit, setProgress),
+          () =>
+            exportChat(chat, setProgress, {
+              includeMediaSources,
+              limit: messageLimit,
+            }),
           (seconds) => setInfo(`FloodWait: waiting ${seconds}s, then retrying “${chat.title}”…`),
         );
         next.push(bundle);
@@ -282,7 +284,7 @@ export default function App() {
     }
     if (
       !window.confirm(
-        `Export ${remaining.length} remaining chat(s) as JSON only, one at a time? ${already.size} already exported will be skipped. Allow multiple downloads if the browser asks.`,
+        `Export ${remaining.length} remaining chat(s) as JSON only, one at a time? ${already.size} already exported will be skipped.${includeMediaSources ? " Media source URLs will be included." : ""} Allow multiple downloads if the browser asks.`,
       )
     ) {
       return;
@@ -312,10 +314,14 @@ export default function App() {
         try {
           const bundle = await withFloodWaitRetry(
             () =>
-              exportChat(chat, messageLimit, (p) => {
-                setProgress(p);
-                setInfo(`Exporting ${n}/${total}: ${chat.title} (${p.count} msgs)`);
-              }),
+              exportChat(
+                chat,
+                (p) => {
+                  setProgress(p);
+                  setInfo(`Exporting ${n}/${total}: ${chat.title} (${p.count} msgs)`);
+                },
+                { includeMediaSources, limit: messageLimit },
+              ),
             (seconds) => {
               setInfo(`FloodWait: waiting ${seconds}s, then retrying “${chat.title}”…`);
             },
@@ -527,107 +533,31 @@ export default function App() {
       ) : null}
 
       {screen === "chats" ? (
-        <section className="card">
-          <input
-            className="search"
-            type="search"
-            placeholder="Search chats"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <p className="selected">
-            {selectedChats.length} selected · {visibleChats.length} shown
-            {doneIds.length ? ` · ${doneIds.length} already exported` : ""}
-          </p>
-          <ul className="chats">
-            {visibleChats.map((chat) => (
-              <li className="chat" key={chat.key}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(selected[chat.key])}
-                  onChange={() => toggleChat(chat.key)}
-                  aria-label={`Select ${chat.title}`}
-                />
-                <div>
-                  <div className="chat-title">{chat.title}</div>
-                  <div className="chat-sub">
-                    {chat.subtitle}
-                    {doneIdSet.has(String(chat.id)) ? " · exported" : ""}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <label htmlFor="limit">Message limit (0 = all)</label>
-          <input
-            id="limit"
-            inputMode="numeric"
-            value={limit}
-            onChange={(e) => setLimit(e.target.value)}
-          />
-          <div className="actions">
-            <button className="primary" type="button" disabled={busy} onClick={() => void handleExport()}>
-              {busy ? "Exporting…" : "Export selected"}
-            </button>
-            <button
-              className="secondary"
-              type="button"
-              disabled={busy || chats.length === 0}
-              onClick={() => void handleExportAll()}
-            >
-              {busy
-                ? "Exporting…"
-                : `Export all chats${chats.length ? ` (${chats.length})` : ""}`}
-            </button>
-            <button
-              className="secondary"
-              type="button"
-              disabled={busy || doneIds.length === 0}
-              onClick={handleClearExportProgress}
-            >
-              Clear export progress
-            </button>
-          </div>
-          <p className="hint">
-            Export all is JSON only and runs one dialog at a time (fetch → download → clear memory →
-            short delay). Already-exported chat ids in localStorage <code>tg_export_done_ids</code>{" "}
-            are skipped. Files are named{" "}
-            <code>{"{slug}__{chatId}-{YYYYMMDD}.json"}</code>. Selected export can still save
-            HTML/TXT (skipped above {HTML_TXT_MAX_MESSAGES.toLocaleString()} messages). FloodWait
-            waits and retries; other per-chat errors are skipped.
-          </p>
-          {progress ? (
-            <p className="progress">
-              {progress.count} messages
-              {progress.lastDate ? ` · last ${progress.lastDate}` : ""}
-            </p>
-          ) : null}
-          {bundles.map((bundle) => (
-            <div className="exports" key={`${bundle.chatId}-${bundle.exportedAt}`}>
-              <strong>
-                {bundle.chatTitle} · {bundle.chatId} · {bundle.messageCount}
-              </strong>
-              <div className="row">
-                <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "json")}>
-                  JSON
-                </button>
-                {allowsHtmlTxt(bundle.messageCount) ? (
-                  <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "html")}>
-                    HTML
-                  </button>
-                ) : (
-                  <span className="hint">HTML/TXT skipped (&gt;{HTML_TXT_MAX_MESSAGES} msgs)</span>
-                )}
-              </div>
-              {allowsHtmlTxt(bundle.messageCount) ? (
-                <button className="secondary" type="button" onClick={() => void saveBundle(bundle, "txt")}>
-                  TXT
-                </button>
-              ) : null}
-            </div>
-          ))}
-          <PrivacyNote />
-        </section>
+        <>
+          <ChatList
+            chats={chats}
+            visibleChats={visibleChats}
+            selected={selected}
+            onToggle={toggleChat}
+            query={query}
+            onQueryChange={setQuery}
+            doneIds={doneIds}
+            doneIdSet={doneIdSet}
+            limit={limit}
+            onLimitChange={setLimit}
+            includeMediaSources={includeMediaSources}
+            onIncludeMediaSourcesChange={setIncludeMediaSources}
+            busy={busy}
+            progress={progress}
+            bundles={bundles}
+            onExportSelected={() => void handleExport()}
+            onExportAll={() => void handleExportAll()}
+            onClearProgress={handleClearExportProgress}
+            onSaveBundle={(bundle, kind) => void saveBundle(bundle, kind)}
+          >
+            <PrivacyNote />
+          </ChatList>
+        </>
       ) : null}
     </main>
   );
@@ -686,8 +616,9 @@ function IphoneHelp() {
           Filenames look like <code>Unknown__8172808504-20260916.json</code>.{" "}
           <strong>Export all chats</strong> downloads JSON only, one dialog at a time, then
           forgets that history (avoids Chrome running out of memory). Progress is saved so you can
-          resume. HTML/TXT for selected chats are skipped above {HTML_TXT_MAX_MESSAGES.toLocaleString()}{" "}
-          messages.
+          resume. Optional media source URLs store Telegram/webpage links and highest-res size
+          metadata — not permanent CDN file URLs. HTML/TXT for selected chats are skipped above{" "}
+          {HTML_TXT_MAX_MESSAGES.toLocaleString()} messages.
         </li>
       </ol>
     </details>
